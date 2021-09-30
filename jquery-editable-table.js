@@ -64,6 +64,8 @@ $.fn.editableTable = function (options) {
     function showEditor(select) {
         // Set the active cell
         activeCell = element.find('td:focus');
+	if (activeCell.hasClass('read-only-cell')) return false;
+	    
         if (activeCell.length) {
             // Prepare
             editor.val(activeCell.text())							// Throw the value in
@@ -191,16 +193,19 @@ $.fn.editableTable = function (options) {
 
     // Validate based on options
     $('table td').on('validate', function (evt, newValue) {
+	let td = $(this);
         let currentColIndex = $(evt.currentTarget).index();
+        let currentRowIndex = td.parent('tr').index();
         let columnDef = options.columns[currentColIndex];
         let currentData = _instance.getData({ convert: false }); // current data to allow user to validate based on existing data
-        let isValid = columnDef.isValid && columnDef.isValid(newValue, currentData);
+        let isValid = columnDef.isValid && columnDef.isValid(newValue, currentData, currentColIndex, currentRowIndex);
         return isValid;
     });
 
     $('table td').on('change', function (evt, newValue) {
         let td = $(this);
         let currentColIndex = $(evt.currentTarget).index();
+        let currentRowIndex = td.parent('tr').index();
         let columnDef = options.columns[currentColIndex];
 
         if (columnDef.removeRowIfCleared && newValue == '') {
@@ -209,7 +214,7 @@ $.fn.editableTable = function (options) {
 
         // Bind user-specified events if they exist
         if (typeof columnDef.afterChange == 'function') {
-            columnDef.afterChange(newValue, td);
+            columnDef.afterChange(newValue, td, currentColIndex, currentRowIndex);
         }
 
         return true;
