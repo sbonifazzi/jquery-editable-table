@@ -1,6 +1,7 @@
 $.fn.editableTable = function (options) {
     // Default options
     let defaultOptions = {
+        focusedCellClass: 'cell-has-focus',
         cloneProperties: ['padding', 'padding-top', 'padding-bottom', 'padding-left', 'padding-right',
             'text-align', 'font', 'font-size', 'font-family', 'font-weight',
             'border', 'border-top', 'border-bottom', 'border-left', 'border-right', 'color', 'background-color', 'border-radius'],
@@ -20,16 +21,17 @@ $.fn.editableTable = function (options) {
     let identifierAttribute = 'table-editor-input';
 
     // Keycodes
-    let ARROW_LEFT = 37,
+    const ARROW_LEFT = 37,
         ARROW_UP = 38,
         ARROW_RIGHT = 39,
         ARROW_DOWN = 40,
         ENTER = 13,
+        DELETE = 46,
         ESC = 27,
         TAB = 9,
         CONTROL = 17,
         LEFT_WINDOWS = 91,
-        SELECT_KEY = 93;
+        SELECT_KEY = 113;
 
     // The table element
     let element = $(this);
@@ -64,7 +66,10 @@ $.fn.editableTable = function (options) {
     function showEditor(select) {
         // Set the active cell
         activeCell = element.find('td:focus');
+        if (activeCell.hasClass('read-only-cell')) return false;
+
         if (activeCell.length) {
+            activeCell.trigger($.Event('beginedit'));
             // Prepare
             editor.val(activeCell.text())							// Throw the value in
                 .removeClass(errorClass)							// remove any error classes
@@ -112,6 +117,7 @@ $.fn.editableTable = function (options) {
     editor.blur(function () {
         setActiveText();
         editor.hide();
+        activeCell.trigger($.Event('leavecell'));
     });
 
     // Handle typing into the input
@@ -154,7 +160,7 @@ $.fn.editableTable = function (options) {
     });
 
     // On table clicking, move around cells
-    element.on('click keypress dblclick', showEditor)
+    element.on('keypress dblclick', showEditor)
         .css('cursor', 'pointer')
         .keydown(function (e) {
             let prevent = true,
@@ -163,6 +169,8 @@ $.fn.editableTable = function (options) {
                 possibleMove.focus();
             } else if (e.which === ENTER) {
                 showEditor(false);
+            } else if (e.which === DELETE) {
+              $(this).find('td:focus').text('');
             } else if (e.which === CONTROL || e.which === LEFT_WINDOWS || e.which === SELECT_KEY) {
                 showEditor(true);
                 prevent = false;
@@ -170,10 +178,22 @@ $.fn.editableTable = function (options) {
                 prevent = false;
             }
             if (prevent) {
+                $(this).find('td').removeClass(options.focusedCellClass);
                 e.stopPropagation();
                 e.preventDefault();
             }
         });
+
+
+    // On table click, highlight focused cell
+    element.on('click', function(e) {
+      $(this).find('td').removeClass(options.focusedCellClass);
+      $(e.target).addClass(options.focusedCellClass);
+      // e.stopPropagation();
+      // e.preventDefault();
+    });
+        
+
 
     element.find('td').prop('tabindex', 1);
 
@@ -190,17 +210,20 @@ $.fn.editableTable = function (options) {
     }
 
     // Validate based on options
-    $('table td').on('validate', function (evt, newValue) {
+    element.find('td').on('validate', function (evt, newValue) {
+        let td = $(this);
         let currentColIndex = $(evt.currentTarget).index();
+        let currentRowIndex = td.parent('tr').index();
         let columnDef = options.columns[currentColIndex];
         let currentData = _instance.getData({ convert: false }); // current data to allow user to validate based on existing data
-        let isValid = columnDef.isValid && columnDef.isValid(newValue, currentData);
+        let isValid = columnDef.isValid && columnDef.isValid(newValue, currentData, currentColIndex, currentRowIndex);
         return isValid;
     });
 
-    $('table td').on('change', function (evt, newValue) {
+    element.find('td').on('change', function (evt, newValue) {
         let td = $(this);
         let currentColIndex = $(evt.currentTarget).index();
+        let currentRowIndex = td.parent('tr').index();
         let columnDef = options.columns[currentColIndex];
 
         if (columnDef.removeRowIfCleared && newValue == '') {
@@ -209,11 +232,37 @@ $.fn.editableTable = function (options) {
 
         // Bind user-specified events if they exist
         if (typeof columnDef.afterChange == 'function') {
-            columnDef.afterChange(newValue, td);
+            columnDef.afterChange(newValue, td, currentColIndex, currentRowIndex);
         }
 
         return true;
     });
+
+    // Leaved cell
+    element.find('td').on('leavecell', function (evt) {
+        let td = $(this);
+        // let newData = td.text();
+        let currentColIndex = $(evt.currentTarget).index();
+        let currentRowIndex = td.parent('tr').index();
+        let columnDef = options.columns[currentColIndex];
+        // let currentData = _instance.getData({ convert: false }); // current data to allow user to validate based on existing data
+        if (columnDef.onLeaveCell && typeof columnDef.onLeaveCell == 'function') {
+            columnDef.onLeaveCell(currentColIndex, currentRowIndex);
+        }
+    });
+
+    // Begin cell edit
+    element.find('td').on('beginedit', function (evt) {
+        let td = $(this);
+        let currentColIndex = $(evt.currentTarget).index();
+        let currentRowIndex = td.parent('tr').index();
+        let columnDef = options.columns[currentColIndex];
+        let currentData = _instance.getData({ convert: false }); // current data to allow user to validate based on existing data
+        if (columnDef.onStartEdit && typeof columnDef.onStartEdit == 'function') {
+          columnDef.onStartEdit(currentData, currentColIndex, currentRowIndex);
+        }
+    });
+
 
     // Set up the instance reference
     _instance = {
